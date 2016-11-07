@@ -85,7 +85,7 @@ fn pulse_info(pid: u32) {
                                     break;
                                 } else {
                                     let mute = if pa_userdata.info.mute == 0 { 1 } else { 0 };
-                                    println!("setting mute to {} for {}", mute, pa_userdata.info.index);
+                                    // println!("setting mute to {} for {}", mute, pa_userdata.info.index);
                                     pa_operation_unref(pa_op);
                                     pa_op = pa_context_set_sink_input_mute(
                                         pa_ctx, pa_userdata.info.index, mute, None, null_mut());
@@ -134,12 +134,12 @@ fn active_window_pid() -> u32 {
     let connection = ewmh::Connection::connect(xcb_con).map_err(|(e, _)| e).unwrap();
     let active_window: xcb::Window = ewmh::get_active_window(&connection, screen_num).get_reply().unwrap();
     let pid = ewmh::get_wm_pid(&connection, active_window).get_reply().unwrap();
-    println!("active_window: {:X}", active_window);
+    // println!("active_window: {:X}", active_window);
     return pid;
 }
 
 fn main() {
     let pid = active_window_pid();
-    println!("pid: {}", pid);
+    // println!("pid: {}", pid);
     pulse_info(pid);
 }
