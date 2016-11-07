@@ -1,0 +1,10 @@
+[package]
+name = "change-volume-of-active"
+version = "0.1.0"
+authors = ["Nikola Kocić <nikolakocic@gmail.com>"]
+
+[dependencies]
+xcb = "*"
+xcb-util = { version = "*", features = ["ewmh"] }
+libpulse-sys = "*"
+libc = "0.2"
