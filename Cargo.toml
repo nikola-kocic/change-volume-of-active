@@ -8,3 +8,4 @@ xcb = "*"
 xcb-util = { version = "*", features = ["ewmh"] }
 libpulse-sys = "*"
 libc = "0.2"
+clap = "*"

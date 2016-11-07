@@ -1,22 +1,56 @@
 extern crate libc;
 
+extern crate clap;
+extern crate libpulse_sys;
 extern crate xcb;
 extern crate xcb_util;
-extern crate libpulse_sys;
 
-use xcb_util::ewmh;
 use std::ptr::{null, null_mut};
 use std::ffi::{CStr, CString};
 use self::libc::{c_char, c_int, c_void};
 
+use clap::{App, Arg};
+use xcb_util::ewmh;
 
-fn pulse_info(pid: u32) {
+#[derive(Debug)]
+enum VolumeOp {
+    ToggleMute,
+    ChangeVolume(f32)
+}
+
+fn pulse_op(pid: u32, op: VolumeOp, debug: bool) {
     use libpulse_sys::*;
+
+    // Not available from libpulse_sys
+    const PA_VOLUME_NORM: u32 = 0x10000u32;
 
     struct SinkInputInfo {
         pid: u32,
         found: bool,
         info: pa_sink_input_info,
+    }
+
+    fn volume_to_percent(volume: f32) -> f32 {
+        let volume_percent: f32 = volume * 100. / (PA_VOLUME_NORM as f32);
+        return volume_percent;
+    }
+
+    fn gamma_correction(i: f32, gamma: f32, delta: f32) -> f32 {
+        let mut j = i;
+        let rel_relta: f32 = delta / 100.0;
+
+        j = j / (PA_VOLUME_NORM as f32);
+        j = j.powf(1.0/gamma);
+
+        j = j + rel_relta;
+        if j < 0.0 {
+            j = 0.0;
+        }
+
+        j = j.powf(gamma);
+        j = j * (PA_VOLUME_NORM as f32);
+
+        return j;
     }
 
     unsafe extern "C" fn pa_state_cb(pa_ctx: *mut pa_context, userdata: *mut c_void) -> () {
@@ -84,11 +118,35 @@ fn pulse_info(pid: u32) {
                                 if !pa_userdata.found {
                                     break;
                                 } else {
-                                    let mute = if pa_userdata.info.mute == 0 { 1 } else { 0 };
-                                    // println!("setting mute to {} for {}", mute, pa_userdata.info.index);
                                     pa_operation_unref(pa_op);
-                                    pa_op = pa_context_set_sink_input_mute(
-                                        pa_ctx, pa_userdata.info.index, mute, None, null_mut());
+
+                                    match op {
+                                        VolumeOp::ToggleMute => {
+                                            let mute = if pa_userdata.info.mute == 0 { 1 } else { 0 };
+                                            if debug {
+                                                println!("setting mute of {} to {}", pa_userdata.info.index, mute);
+                                            }
+                                            pa_op = pa_context_set_sink_input_mute(
+                                                pa_ctx, pa_userdata.info.index, mute, None, null_mut());
+                                        }
+                                        VolumeOp::ChangeVolume(val) => {
+                                            let mut volume: pa_cvolume = pa_userdata.info.volume;
+                                            for i in 0..(volume.channels as usize) {
+                                                let channel_val = volume.values[i] as f32;
+                                                let new_val = gamma_correction(channel_val, 1.0, val);
+                                                let new_val_normalized = if new_val < 0.0 { 0 } else { new_val.round() as u32 };
+                                                if debug {
+                                                    let perc_vol = volume_to_percent(channel_val);
+                                                    let new_perc_vol = volume_to_percent(new_val);
+                                                    println!("setting volume of sink {} channel {} from {} to {}",
+                                                        pa_userdata.info.index, i, perc_vol, new_perc_vol);
+                                                }
+                                                volume.values[i] = new_val_normalized;
+                                            }
+                                            pa_op = pa_context_set_sink_input_volume(
+                                                pa_ctx, pa_userdata.info.index, &volume, None, null_mut());
+                                        }
+                                    }
                                     assert!(!pa_op.is_null());
                                     state += 1;
                                 }
@@ -129,17 +187,61 @@ fn pulse_info(pid: u32) {
     }
 }
 
-fn active_window_pid() -> u32 {
+fn active_window_pid(debug: bool) -> u32 {
     let (xcb_con, screen_num) = xcb::Connection::connect(None).unwrap();
     let connection = ewmh::Connection::connect(xcb_con).map_err(|(e, _)| e).unwrap();
     let active_window: xcb::Window = ewmh::get_active_window(&connection, screen_num).get_reply().unwrap();
     let pid = ewmh::get_wm_pid(&connection, active_window).get_reply().unwrap();
-    // println!("active_window: {:X}", active_window);
+    if debug {
+        println!("active_window: {:X}", active_window);
+    }
     return pid;
 }
 
 fn main() {
-    let pid = active_window_pid();
-    // println!("pid: {}", pid);
-    pulse_info(pid);
+    let matches = App::new("Change Volume of Active App")
+        .version("0.1.0")
+        .author("Nikola Kocić. <nikolakocic@gmail.com>")
+        .about("Changes volume of active application")
+        .arg(Arg::with_name("mute")
+            .long("mute")
+            .short("m")
+            .help("Toggle mute")
+            .takes_value(false)
+            .conflicts_with("volume"))
+        .arg(Arg::with_name("volume")
+            .long("volume")
+            .short("v")
+            .help("Adjusts volume (in percent)")
+            .takes_value(true))
+        .arg(Arg::with_name("debug")
+            .long("debug")
+            .short("d")
+            .help("Turn on debug output")
+            .takes_value(false))
+        .get_matches();
+    let op = {
+        let mute: bool = matches.is_present("mute");
+        if mute {
+            VolumeOp::ToggleMute
+        } else {
+            let volume_present: bool = matches.is_present("volume");
+            if volume_present {
+                let volume_delta_s: &str = matches.value_of("volume").unwrap();
+                let volume_delta = volume_delta_s.parse::<f32>().unwrap();
+                VolumeOp::ChangeVolume(volume_delta)
+            } else {
+                VolumeOp::ChangeVolume(0.0)
+            }
+        }
+    };
+
+    let debug = matches.is_present("debug");
+
+    let pid = active_window_pid(debug);
+    if debug {
+        println!("op = {:?}", op);
+        println!("pid: {}", pid);
+    }
+    pulse_op(pid, op, debug);
 }
