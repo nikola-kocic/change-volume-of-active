@@ -45,6 +45,33 @@ fn gamma_correction(i: f32, gamma: f32, delta: f32) -> f32 {
     j
 }
 
+fn calculate_new_volume(delta: f32, old_val: f32) -> u32 {
+    let new_val = gamma_correction(old_val, 1.0, delta);
+    if new_val < 0.0 {
+        0
+    } else {
+        new_val.round() as u32
+    }
+}
+
+fn calculate_new_volumes(delta: f32, volume: &mut pa_cvolume, debug: bool) {
+    for i in 0..(volume.channels as usize) {
+        let channel_val = volume.values[i] as f32;
+        let new_val = calculate_new_volume(delta, channel_val);
+        if debug {
+            let perc_vol = volume_to_percent(channel_val);
+            let new_perc_vol = volume_to_percent(new_val as f32);
+            println!(
+                "setting volume of channel {} from {} to {}",
+                i,
+                perc_vol,
+                new_perc_vol
+            );
+        }
+        volume.values[i] = new_val;
+    }
+}
+
 unsafe extern "C" fn pa_state_cb(pa_ctx: *mut pa_context, userdata: *mut c_void) -> () {
     let pa_state: pa_context_state_t = pa_context_get_state(pa_ctx);
     let mut pa_ready = userdata as *mut pa_context_state_t;
@@ -79,19 +106,44 @@ unsafe extern "C" fn pa_sink_input_info_cb(
     }
 }
 
+unsafe fn perform_op(
+    op: &VolumeOp,
+    pa_ctx: *mut pa_context,
+    info: &mut pa_sink_input_info,
+    debug: bool,
+) -> *mut pa_operation {
+    if debug {
+        println!("That is Pulse audio sink {}", info.index);
+    }
+
+    match *op {
+        VolumeOp::ToggleMute => {
+            let mute = if info.mute == 0 { 1 } else { 0 };
+            if debug {
+                println!("setting mute to {}", mute);
+            }
+            pa_context_set_sink_input_mute(pa_ctx, info.index, mute, None, null_mut())
+        }
+        VolumeOp::ChangeVolume(val) => {
+            calculate_new_volumes(val, &mut info.volume, debug);
+            pa_context_set_sink_input_volume(pa_ctx, info.index, &info.volume, None, null_mut())
+        }
+    }
+}
+
 pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
     // pacmd list-sink-inputs
-    unsafe {
-        let client_name = CString::new("test").unwrap();
-        let mut pa_ready: pa_context_state_t = 0u32;
-        let mut state = 0;
-        let mut pa_op: *mut pa_operation = null_mut();
-        let mut pa_userdata = SinkInputInfo {
-            pid: pid,
-            found: false,
-            info: pa_sink_input_info::default(),
-        };
+    let client_name = CString::new("test").unwrap();
+    let mut pa_ready: pa_context_state_t = 0u32;
+    let mut state = 0;
+    let mut pa_op: *mut pa_operation = null_mut();
+    let mut pa_userdata = SinkInputInfo {
+        pid: pid,
+        found: false,
+        info: pa_sink_input_info::default(),
+    };
 
+    unsafe {
         // Create a mainloop API and connection to the default server
         let pa_ml: *mut pa_mainloop = pa_mainloop_new();
         let pa_mlapi: *mut pa_mainloop_api = pa_mainloop_get_api(pa_ml);
@@ -118,62 +170,11 @@ pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
                             let op_state: pa_operation_state_t = pa_operation_get_state(pa_op);
                             if op_state == PA_OPERATION_DONE {
                                 if !pa_userdata.found {
+                                    println!("PulseAudio sink not found for pid {}", pid);
                                     break;
                                 } else {
                                     pa_operation_unref(pa_op);
-
-                                    match *op {
-                                        VolumeOp::ToggleMute => {
-                                            let mute =
-                                                if pa_userdata.info.mute == 0 { 1 } else { 0 };
-                                            if debug {
-                                                println!(
-                                                    "setting mute of {} to {}",
-                                                    pa_userdata.info.index,
-                                                    mute
-                                                );
-                                            }
-                                            pa_op = pa_context_set_sink_input_mute(
-                                                pa_ctx,
-                                                pa_userdata.info.index,
-                                                mute,
-                                                None,
-                                                null_mut(),
-                                            );
-                                        }
-                                        VolumeOp::ChangeVolume(val) => {
-                                            let mut volume: pa_cvolume = pa_userdata.info.volume;
-                                            for i in 0..(volume.channels as usize) {
-                                                let channel_val = volume.values[i] as f32;
-                                                let new_val =
-                                                    gamma_correction(channel_val, 1.0, val);
-                                                let new_val_normalized = if new_val < 0.0 {
-                                                    0
-                                                } else {
-                                                    new_val.round() as u32
-                                                };
-                                                if debug {
-                                                    let perc_vol = volume_to_percent(channel_val);
-                                                    let new_perc_vol = volume_to_percent(new_val);
-                                                    println!(
-                                                        "setting volume of sink {} channel {} from {} to {}",
-                                                        pa_userdata.info.index,
-                                                        i,
-                                                        perc_vol,
-                                                        new_perc_vol
-                                                    );
-                                                }
-                                                volume.values[i] = new_val_normalized;
-                                            }
-                                            pa_op = pa_context_set_sink_input_volume(
-                                                pa_ctx,
-                                                pa_userdata.info.index,
-                                                &volume,
-                                                None,
-                                                null_mut(),
-                                            );
-                                        }
-                                    }
+                                    pa_op = perform_op(op, pa_ctx, &mut pa_userdata.info, debug);
                                     assert!(!pa_op.is_null());
                                     state += 1;
                                 }
