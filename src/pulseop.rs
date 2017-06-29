@@ -1,17 +1,10 @@
-extern crate libc;
-extern crate libpulse_sys;
-
-use self::libpulse_sys::*;
+use libpulse_sys::*;
 
 use std::ptr::{null, null_mut};
 use std::ffi::{CStr, CString};
-use self::libc::{c_char, c_int, c_void};
+use libc::{c_char, c_int, c_void};
 
-#[derive(Debug)]
-pub enum VolumeOp {
-    ToggleMute,
-    ChangeVolume(f32),
-}
+use operations::VolumeOp;
 
 // Not available from libpulse_sys
 const PA_VOLUME_NORM: u32 = 0x10000u32;
