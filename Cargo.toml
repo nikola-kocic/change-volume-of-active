@@ -9,3 +9,4 @@ xcb-util = { version = "0.1.8", features = ["ewmh"] }
 libpulse-sys = "0.0.0"
 libc = "0.2.24"
 clap = "2.25.0"
+sysinfo = "0.3.8"

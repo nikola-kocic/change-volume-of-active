@@ -172,8 +172,9 @@ unsafe fn perform_volume_op(
     }
 }
 
-pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
+pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) -> bool {
     // pacmd list-sink-inputs
+    let mut success = false;
     let client_name = CString::new("test").unwrap();
     let mut pa_userdata = SinkInputInfo {
         pid: pid,
@@ -196,7 +197,8 @@ pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
                     pa_userdata_ptr,
                 )
             });
-            if pa_userdata.infos.is_empty() {
+            success = !pa_userdata.infos.is_empty();
+            if !success {
                 println!("PulseAudio sink not found for pid {}", pid);
             }
             for mut info in pa_userdata.infos {
@@ -209,4 +211,5 @@ pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
         pa_context_unref(pa_ctx);
         pa_mainloop_free(pa_ml);
     }
+    success
 }

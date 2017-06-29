@@ -5,6 +5,7 @@ pub struct Arguments {
     pub debug: bool,
     pub operation: VolumeOp,
     pub pid: Option<u32>,
+    pub traverse_children: bool,
 }
 
 pub fn get_arguments() -> Arguments {
@@ -17,8 +18,7 @@ pub fn get_arguments() -> Arguments {
                 .long("mute")
                 .short("m")
                 .help("Toggle mute")
-                .takes_value(false)
-                .conflicts_with("volume"),
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("volume")
@@ -26,6 +26,15 @@ pub fn get_arguments() -> Arguments {
                 .short("v")
                 .help("Adjusts volume (in percent)")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("traverse_children")
+                .long("children")
+                .short("c")
+                .help(
+                    "If specified pid doesn't have audio streams, try with its children",
+                )
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("pid")
@@ -66,6 +75,7 @@ pub fn get_arguments() -> Arguments {
     };
 
     let debug = matches.is_present("debug");
+    let traverse_children = matches.is_present("traverse_children");
 
     let pid = {
         if matches.is_present("pid") {
@@ -80,5 +90,6 @@ pub fn get_arguments() -> Arguments {
         debug: debug,
         pid: pid,
         operation: op,
+        traverse_children: traverse_children,
     }
 }

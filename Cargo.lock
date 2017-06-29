@@ -5,6 +5,7 @@ dependencies = [
  "clap 2.25.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "libpulse-sys 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sysinfo 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "xcb 0.7.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "xcb-util 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -78,6 +79,14 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "sysinfo"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "libc 0.2.24 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "term_size"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -149,6 +158,7 @@ dependencies = [
 "checksum libpulse-sys 0.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9bb11b06faf883500c1b625cf4453e6c7737e9df9c7ba01df3f84b22b083e4ac"
 "checksum log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)" = "880f77541efa6e5cc74e76910c9884d9859683118839d6a1dc3b11e63512565b"
 "checksum strsim 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b4d15c810519a91cf877e7e36e63fe068815c678181439f2f29e2562147c3694"
+"checksum sysinfo 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)" = "9715e9da7df8741a16fc52b056946165f035a06fc2314ecd6826c6751e8315c0"
 "checksum term_size 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2b6b55df3198cc93372e85dd2ed817f0e38ce8cc0f22eb32391bfad9c4bf209"
 "checksum textwrap 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f86300c3e7416ee233abd7cda890c492007a3980f941f79185c753a701257167"
 "checksum unicode-segmentation 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "18127285758f0e2c6cf325bb3f3d138a12fee27de4f23e146cd6a179f26c2cf3"
