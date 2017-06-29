@@ -15,8 +15,8 @@ fn main() {
         println!("op = {:?}", arguments.operation);
         println!("pid: {:?}", arguments.pid);
     }
-    let pid: u32 = arguments.pid.unwrap_or_else(
-        || activewindow::active_window_pid(arguments.debug),
-    );
+    let pid: u32 = arguments.pid.unwrap_or_else(|| {
+        activewindow::active_window_pid(arguments.debug)
+    });
     pulseop::pulse_op(pid, &arguments.operation, arguments.debug);
 }

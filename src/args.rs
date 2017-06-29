@@ -31,7 +31,9 @@ pub fn get_arguments() -> Arguments {
             Arg::with_name("pid")
                 .short("p")
                 .long("pid")
-                .help("PID of window, get active window if not specified")
+                .help(
+                    "Process ID to control, get active application if not specified",
+                )
                 .takes_value(true),
         )
         .arg(

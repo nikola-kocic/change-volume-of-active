@@ -11,8 +11,8 @@ const PA_VOLUME_NORM: u32 = 0x10000u32;
 
 struct SinkInputInfo {
     pid: u32,
-    found: bool,
-    info: pa_sink_input_info,
+    infos: Vec<pa_sink_input_info>,
+    debug: bool,
 }
 
 fn volume_to_percent(volume: f32) -> f32 {
@@ -91,10 +91,13 @@ unsafe extern "C" fn pa_sink_input_info_cb(
             let pid_s = CStr::from_ptr(pid_c).to_str().unwrap();
             pid_s.parse::<u32>().unwrap()
         };
-        let mut pa_userdata = userdata as *mut SinkInputInfo;
-        if (*pa_userdata).pid == pid {
-            (*pa_userdata).found = true;
-            (*pa_userdata).info = *i;
+        let pa_userdata_ptr = userdata as *mut SinkInputInfo;
+        let mut pa_userdata: &mut SinkInputInfo = &mut *pa_userdata_ptr;
+        if pa_userdata.pid == pid {
+            if pa_userdata.debug {
+                println!("Matched pid on sink {}", (*i).index);
+            }
+            pa_userdata.infos.push(*i);
         }
     }
 }
@@ -106,7 +109,7 @@ unsafe fn perform_op(
     debug: bool,
 ) -> *mut pa_operation {
     if debug {
-        println!("That is Pulse audio sink {}", info.index);
+        println!("Performing operation on sink {}", info.index);
     }
 
     match *op {
@@ -132,9 +135,10 @@ pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
     let mut pa_op: *mut pa_operation = null_mut();
     let mut pa_userdata = SinkInputInfo {
         pid: pid,
-        found: false,
-        info: pa_sink_input_info::default(),
+        infos: Vec::new(),
+        debug: debug,
     };
+    let mut info: Option<pa_sink_input_info> = None;
 
     unsafe {
         // Create a mainloop API and connection to the default server
@@ -162,21 +166,21 @@ pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
                         1 => {
                             let op_state: pa_operation_state_t = pa_operation_get_state(pa_op);
                             if op_state == PA_OPERATION_DONE {
-                                if !pa_userdata.found {
-                                    println!("PulseAudio sink not found for pid {}", pid);
-                                    break;
-                                } else {
-                                    pa_operation_unref(pa_op);
-                                    pa_op = perform_op(op, pa_ctx, &mut pa_userdata.info, debug);
-                                    assert!(!pa_op.is_null());
-                                    state += 1;
+                                let previous_info = info;
+                                info = pa_userdata.infos.pop();
+                                match info {
+                                    None => {
+                                        if previous_info.is_none() {
+                                            println!("PulseAudio sink not found for pid {}", pid);
+                                        }
+                                        break;
+                                    }
+                                    Some(ref mut info) => {
+                                        pa_operation_unref(pa_op);
+                                        pa_op = perform_op(op, pa_ctx, info, debug);
+                                        assert!(!pa_op.is_null());
+                                    }
                                 }
-                            }
-                        }
-                        2 => {
-                            let op_state: pa_operation_state_t = pa_operation_get_state(pa_op);
-                            if op_state == PA_OPERATION_DONE {
-                                break;
                             }
                         }
                         _ => {
