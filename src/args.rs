@@ -28,6 +28,13 @@ pub fn get_arguments() -> Arguments {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("set_volume")
+                .long("setvolume")
+                .short("s")
+                .help("Set volume to specified percent value")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("traverse_children")
                 .long("children")
                 .short("c")
@@ -54,7 +61,7 @@ pub fn get_arguments() -> Arguments {
         )
         .group(
             ArgGroup::with_name("operation")
-                .args(&["mute", "volume"])
+                .args(&["mute", "volume", "set_volume"])
                 .required(true),
         )
         .get_matches();
@@ -69,7 +76,14 @@ pub fn get_arguments() -> Arguments {
                 let volume_delta = volume_delta_s.parse::<f32>().unwrap();
                 VolumeOp::ChangeVolume(volume_delta)
             } else {
-                VolumeOp::ChangeVolume(0.0)
+                let set_volume_present: bool = matches.is_present("set_volume");
+                if set_volume_present {
+                    let set_volume_s: &str = matches.value_of("set_volume").unwrap();
+                    let set_volume = set_volume_s.parse::<f32>().unwrap();
+                    VolumeOp::SetVolume(set_volume)
+                } else {
+                    VolumeOp::ChangeVolume(0.0)
+                }
             }
         }
     };

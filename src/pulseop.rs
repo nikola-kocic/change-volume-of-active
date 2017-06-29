@@ -7,6 +7,7 @@ use libc::{c_char, c_int, c_void};
 use operations::VolumeOp;
 
 // Not available from libpulse_sys
+// Normal volume (100%, 0 dB)
 const PA_VOLUME_NORM: u32 = 0x10000u32;
 
 struct SinkInputInfo {
@@ -18,6 +19,11 @@ struct SinkInputInfo {
 fn volume_to_percent(volume: f32) -> f32 {
     let volume_percent: f32 = volume * 100. / (PA_VOLUME_NORM as f32);
     volume_percent
+}
+
+fn percent_to_volume(percent: f32) -> u32 {
+    let volume: f32 = percent * (PA_VOLUME_NORM as f32 / 100.);
+    volume.round() as u32
 }
 
 fn gamma_correction(i: f32, gamma: f32, delta_percent: f32) -> f32 {
@@ -172,6 +178,10 @@ unsafe fn perform_volume_op(
             modify_volumes(&mut info.volume, debug, |channel_val| {
                 volume_with_delta(delta_percent, channel_val)
             });
+            pa_context_set_sink_input_volume(pa_ctx, info.index, &info.volume, None, null_mut())
+        }
+        VolumeOp::SetVolume(percent) => {
+            modify_volumes(&mut info.volume, debug, |_| percent_to_volume(percent));
             pa_context_set_sink_input_volume(pa_ctx, info.index, &info.volume, None, null_mut())
         }
     }
