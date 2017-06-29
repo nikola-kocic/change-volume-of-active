@@ -190,7 +190,7 @@ unsafe fn perform_volume_op(
 pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) -> bool {
     // pacmd list-sink-inputs
     let mut success = false;
-    let client_name = CString::new("test").unwrap();
+    let client_name = CString::new(env!("CARGO_PKG_NAME")).unwrap();
     let mut pa_userdata = SinkInputInfo {
         pid: pid,
         infos: Vec::new(),
