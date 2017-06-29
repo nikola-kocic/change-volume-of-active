@@ -20,9 +20,9 @@ fn volume_to_percent(volume: f32) -> f32 {
     volume_percent
 }
 
-fn gamma_correction(i: f32, gamma: f32, delta: f32) -> f32 {
+fn gamma_correction(i: f32, gamma: f32, delta_percent: f32) -> f32 {
     let mut j = i;
-    let rel_relta: f32 = delta / 100.0;
+    let rel_relta: f32 = delta_percent / 100.0;
 
     j /= PA_VOLUME_NORM as f32;
     j = j.powf(1.0 / gamma);
@@ -38,8 +38,8 @@ fn gamma_correction(i: f32, gamma: f32, delta: f32) -> f32 {
     j
 }
 
-fn calculate_new_volume(delta: f32, old_val: f32) -> u32 {
-    let new_val = gamma_correction(old_val, 1.0, delta);
+fn volume_with_delta(delta_percent: f32, old_val: f32) -> u32 {
+    let new_val = gamma_correction(old_val, 1.0, delta_percent);
     if new_val < 0.0 {
         0
     } else {
@@ -47,10 +47,13 @@ fn calculate_new_volume(delta: f32, old_val: f32) -> u32 {
     }
 }
 
-fn calculate_new_volumes(delta: f32, volume: &mut pa_cvolume, debug: bool) {
+fn modify_volumes<F>(volume: &mut pa_cvolume, debug: bool, f: F)
+where
+    F: Fn(f32) -> u32,
+{
     for i in 0..(volume.channels as usize) {
         let channel_val = volume.values[i] as f32;
-        let new_val = calculate_new_volume(delta, channel_val);
+        let new_val = f(channel_val);
         if debug {
             let perc_vol = volume_to_percent(channel_val);
             let new_perc_vol = volume_to_percent(new_val as f32);
@@ -165,8 +168,10 @@ unsafe fn perform_volume_op(
             }
             pa_context_set_sink_input_mute(pa_ctx, info.index, mute, None, null_mut())
         }
-        VolumeOp::ChangeVolume(val) => {
-            calculate_new_volumes(val, &mut info.volume, debug);
+        VolumeOp::ChangeVolume(delta_percent) => {
+            modify_volumes(&mut info.volume, debug, |channel_val| {
+                volume_with_delta(delta_percent, channel_val)
+            });
             pa_context_set_sink_input_volume(pa_ctx, info.index, &info.volume, None, null_mut())
         }
     }
