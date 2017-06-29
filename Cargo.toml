@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Nikola Kocić <nikolakocic@gmail.com>"]
 
 [dependencies]
-xcb = "*"
-xcb-util = { version = "*", features = ["ewmh"] }
-libpulse-sys = "*"
-libc = "0.2"
-clap = "*"
+xcb = "0.7.6"
+xcb-util = { version = "0.1.8", features = ["ewmh"] }
+libpulse-sys = "0.0.0"
+libc = "0.2.24"
+clap = "2.25.0"
