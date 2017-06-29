@@ -1,7 +1,8 @@
 [package]
 name = "change-volume-of-active"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Nikola Kocić <nikolakocic@gmail.com>"]
+description = "Changes volume of active application"
 
 [dependencies]
 xcb = "0.7.6"

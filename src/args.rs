@@ -10,9 +10,9 @@ pub struct Arguments {
 
 pub fn get_arguments() -> Arguments {
     let matches = App::new("Change Volume of Active App")
-        .version("0.1.0")
-        .author("Nikola Kocić. <nikolakocic@gmail.com>")
-        .about("Changes volume of active application")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about(crate_description!())
         .arg(
             Arg::with_name("mute")
                 .long("mute")
