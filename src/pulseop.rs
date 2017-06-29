@@ -65,11 +65,56 @@ fn calculate_new_volumes(delta: f32, volume: &mut pa_cvolume, debug: bool) {
     }
 }
 
-unsafe extern "C" fn pa_state_cb(pa_ctx: *mut pa_context, userdata: *mut c_void) -> () {
-    let pa_state: pa_context_state_t = pa_context_get_state(pa_ctx);
-    let mut pa_ready = userdata as *mut pa_context_state_t;
-    *pa_ready = pa_state;
-    // println!("Pulse state: {}", pa_state);
+unsafe fn connect_pa_context(pa_ml: *mut pa_mainloop, pa_ctx: *mut pa_context) -> bool {
+    unsafe extern "C" fn pa_state_cb(pa_ctx: *mut pa_context, userdata: *mut c_void) -> () {
+        let pa_state: pa_context_state_t = pa_context_get_state(pa_ctx);
+        let mut pa_ready = userdata as *mut pa_context_state_t;
+        *pa_ready = pa_state;
+        // println!("Pulse state: {}", pa_state);
+    }
+
+    let mut pa_ready: pa_context_state_t = 0u32;
+    let pa_ready_ptr = &mut pa_ready as *mut _ as *mut c_void;
+    pa_context_set_state_callback(pa_ctx, Some(pa_state_cb), pa_ready_ptr);
+    pa_context_connect(pa_ctx, null(), 0, null());
+    loop {
+        match pa_ready {
+            PA_CONTEXT_READY => {
+                return true;
+            }
+            PA_CONTEXT_FAILED |
+            PA_CONTEXT_TERMINATED => {
+                println!("Failed to connect to PulseAudio!");
+                return false;
+            }
+            _ => {}
+        }
+
+        // Iterate the main loop and go again.  The second argument is whether
+        // or not the iteration should block until something is ready to be
+        // done.  Set it to zero for non-blocking.
+        pa_mainloop_iterate(pa_ml, 1, null_mut());
+    }
+}
+
+unsafe fn do_pa_operation<F>(pa_ml: *mut pa_mainloop, f: F) -> pa_operation_state_t
+where
+    F: FnOnce() -> *mut pa_operation,
+{
+    let pa_op: *mut pa_operation = f();
+    assert!(!pa_op.is_null());
+
+    loop {
+        let op_state: pa_operation_state_t = pa_operation_get_state(pa_op);
+        if op_state != PA_OPERATION_RUNNING {
+            pa_operation_unref(pa_op);
+            return op_state;
+        }
+        // Iterate the main loop and go again.  The second argument is whether
+        // or not the iteration should block until something is ready to be
+        // done.  Set it to zero for non-blocking.
+        pa_mainloop_iterate(pa_ml, 1, null_mut());
+    }
 }
 
 unsafe extern "C" fn pa_sink_input_info_cb(
@@ -102,7 +147,7 @@ unsafe extern "C" fn pa_sink_input_info_cb(
     }
 }
 
-unsafe fn perform_op(
+unsafe fn perform_volume_op(
     op: &VolumeOp,
     pa_ctx: *mut pa_context,
     info: &mut pa_sink_input_info,
@@ -130,82 +175,36 @@ unsafe fn perform_op(
 pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) {
     // pacmd list-sink-inputs
     let client_name = CString::new("test").unwrap();
-    let mut pa_ready: pa_context_state_t = 0u32;
-    let mut state = 0;
-    let mut pa_op: *mut pa_operation = null_mut();
     let mut pa_userdata = SinkInputInfo {
         pid: pid,
         infos: Vec::new(),
         debug: debug,
     };
-    let mut info: Option<pa_sink_input_info> = None;
 
     unsafe {
         // Create a mainloop API and connection to the default server
         let pa_ml: *mut pa_mainloop = pa_mainloop_new();
         let pa_mlapi: *mut pa_mainloop_api = pa_mainloop_get_api(pa_ml);
         let pa_ctx: *mut pa_context = pa_context_new(pa_mlapi, client_name.as_ptr());
-        let pa_ready_ptr = &mut pa_ready as *mut _ as *mut c_void;
-        pa_context_set_state_callback(pa_ctx, Some(pa_state_cb), pa_ready_ptr);
-        pa_context_connect(pa_ctx, null(), 0, null());
 
-        loop {
-            match pa_ready {
-                PA_CONTEXT_READY => {
-                    match state {
-                        0 => {
-                            let pa_userdata_ptr = &mut pa_userdata as *mut _ as *mut c_void;
-                            pa_op = pa_context_get_sink_input_info_list(
-                                pa_ctx,
-                                Some(pa_sink_input_info_cb),
-                                pa_userdata_ptr,
-                            );
-                            assert!(!pa_op.is_null());
-                            state += 1;
-                        }
-                        1 => {
-                            let op_state: pa_operation_state_t = pa_operation_get_state(pa_op);
-                            if op_state == PA_OPERATION_DONE {
-                                let previous_info = info;
-                                info = pa_userdata.infos.pop();
-                                match info {
-                                    None => {
-                                        if previous_info.is_none() {
-                                            println!("PulseAudio sink not found for pid {}", pid);
-                                        }
-                                        break;
-                                    }
-                                    Some(ref mut info) => {
-                                        pa_operation_unref(pa_op);
-                                        pa_op = perform_op(op, pa_ctx, info, debug);
-                                        assert!(!pa_op.is_null());
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            assert!(false);
-                        }
-                    }
-                }
-                PA_CONTEXT_FAILED |
-                PA_CONTEXT_TERMINATED => {
-                    println!("Failed to connect to PulseAudio!");
-                    break;
-                }
-                _ => {}
+        if connect_pa_context(pa_ml, pa_ctx) {
+            let pa_userdata_ptr = &mut pa_userdata as *mut _ as *mut c_void;
+            do_pa_operation(pa_ml, || {
+                pa_context_get_sink_input_info_list(
+                    pa_ctx,
+                    Some(pa_sink_input_info_cb),
+                    pa_userdata_ptr,
+                )
+            });
+            if pa_userdata.infos.is_empty() {
+                println!("PulseAudio sink not found for pid {}", pid);
             }
-
-            // Iterate the main loop and go again.  The second argument is whether
-            // or not the iteration should block until something is ready to be
-            // done.  Set it to zero for non-blocking.
-            pa_mainloop_iterate(pa_ml, 1, null_mut());
+            for mut info in pa_userdata.infos {
+                do_pa_operation(pa_ml, || perform_volume_op(op, pa_ctx, &mut info, debug));
+            }
         }
 
         // Cleanup
-        if !pa_op.is_null() {
-            pa_operation_unref(pa_op);
-        }
         pa_context_disconnect(pa_ctx);
         pa_context_unref(pa_ctx);
         pa_mainloop_free(pa_ml);
