@@ -45,6 +45,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("pid")
+                .short("p")
+                .long("pid")
+                .help("PID of window, get active window if not specified")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("debug")
                 .long("debug")
                 .short("d")
@@ -70,7 +77,14 @@ fn main() {
 
     let debug = matches.is_present("debug");
 
-    let pid = active_window_pid(debug);
+    let pid = {
+        if matches.is_present("pid") {
+            let pid_s: &str = matches.value_of("pid").unwrap();
+            pid_s.parse::<u32>().unwrap()
+        } else {
+            active_window_pid(debug)
+        }
+    };
     if debug {
         println!("op = {:?}", op);
         println!("pid: {}", pid);
