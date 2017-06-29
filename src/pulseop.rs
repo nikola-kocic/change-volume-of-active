@@ -10,6 +10,8 @@ use operations::VolumeOp;
 // Normal volume (100%, 0 dB)
 const PA_VOLUME_NORM: u32 = 0x10000u32;
 
+const DEBUG_LOG: bool = false;
+
 struct SinkInputInfo {
     pid: u32,
     infos: Vec<pa_sink_input_info>,
@@ -60,7 +62,7 @@ where
     for i in 0..(volume.channels as usize) {
         let channel_val = volume.values[i] as f32;
         let new_val = f(channel_val);
-        if debug {
+        if debug || DEBUG_LOG {
             let perc_vol = volume_to_percent(channel_val);
             let new_perc_vol = volume_to_percent(new_val as f32);
             println!(
@@ -79,7 +81,9 @@ unsafe fn connect_pa_context(pa_ml: *mut pa_mainloop, pa_ctx: *mut pa_context) -
         let pa_state: pa_context_state_t = pa_context_get_state(pa_ctx);
         let mut pa_ready = userdata as *mut pa_context_state_t;
         *pa_ready = pa_state;
-        // println!("Pulse state: {}", pa_state);
+        if DEBUG_LOG {
+            println!("Pulse state: {}", pa_state);
+        }
     }
 
     let mut pa_ready: pa_context_state_t = 0u32;
@@ -126,50 +130,21 @@ where
     }
 }
 
-unsafe extern "C" fn pa_sink_input_info_cb(
-    _pa_ctx: *mut pa_context,
-    i: *const pa_sink_input_info,
-    eol: c_int,
-    userdata: *mut c_void,
-) -> () {
-    // If eol is set to a positive number, you're at the end of the list
-    if eol > 0 {
-        return;
-    }
-
-    let p = (*i).proplist;
-    let pa_prop_application_process_id = CString::new("application.process.id").unwrap();
-    if pa_proplist_contains(p, pa_prop_application_process_id.as_ptr()) == 1 {
-        let pid = {
-            let pid_c: *const c_char = pa_proplist_gets(p, pa_prop_application_process_id.as_ptr());
-            let pid_s = CStr::from_ptr(pid_c).to_str().unwrap();
-            pid_s.parse::<u32>().unwrap()
-        };
-        let pa_userdata_ptr = userdata as *mut SinkInputInfo;
-        let mut pa_userdata: &mut SinkInputInfo = &mut *pa_userdata_ptr;
-        if pa_userdata.pid == pid {
-            if pa_userdata.debug {
-                println!("Matched pid on sink {}", (*i).index);
-            }
-            pa_userdata.infos.push(*i);
-        }
-    }
-}
-
-unsafe fn perform_volume_op(
+unsafe fn perform_volume_pa_op(
     op: &VolumeOp,
     pa_ctx: *mut pa_context,
     info: &mut pa_sink_input_info,
     debug: bool,
 ) -> *mut pa_operation {
-    if debug {
+
+    if debug || DEBUG_LOG {
         println!("Performing operation on sink {}", info.index);
     }
 
     match *op {
         VolumeOp::ToggleMute => {
             let mute = if info.mute == 0 { 1 } else { 0 };
-            if debug {
+            if debug || DEBUG_LOG {
                 println!("setting mute to {}", mute);
             }
             pa_context_set_sink_input_mute(pa_ctx, info.index, mute, None, null_mut())
@@ -187,44 +162,129 @@ unsafe fn perform_volume_op(
     }
 }
 
-pub fn pulse_op(pid: u32, op: &VolumeOp, debug: bool) -> bool {
-    // pacmd list-sink-inputs
-    let mut success = false;
-    let client_name = CString::new(env!("CARGO_PKG_NAME")).unwrap();
+fn get_sink_infos(
+    pid: u32,
+    debug: bool,
+    pa_ml: *mut pa_mainloop,
+    pa_ctx: *mut pa_context,
+) -> Vec<pa_sink_input_info> {
+
+    unsafe extern "C" fn pa_sink_input_info_cb(
+        _pa_ctx: *mut pa_context,
+        i: *const pa_sink_input_info,
+        eol: c_int,
+        userdata: *mut c_void,
+    ) -> () {
+        // If eol is set to a positive number, you're at the end of the list
+        if eol > 0 {
+            return;
+        }
+
+        let p = (*i).proplist;
+        let pa_prop_application_process_id = CString::new("application.process.id").unwrap();
+        if pa_proplist_contains(p, pa_prop_application_process_id.as_ptr()) == 1 {
+            let pid = {
+                let pid_c: *const c_char =
+                    pa_proplist_gets(p, pa_prop_application_process_id.as_ptr());
+                let pid_s = CStr::from_ptr(pid_c).to_str().unwrap();
+                pid_s.parse::<u32>().unwrap()
+            };
+            let pa_userdata_ptr = userdata as *mut SinkInputInfo;
+            let mut pa_userdata: &mut SinkInputInfo = &mut *pa_userdata_ptr;
+            if pa_userdata.pid == pid {
+                if pa_userdata.debug {
+                    println!("Matched pid on sink {}", (*i).index);
+                }
+                pa_userdata.infos.push(*i);
+            }
+        }
+    }
+
     let mut pa_userdata = SinkInputInfo {
         pid: pid,
         infos: Vec::new(),
         debug: debug,
     };
-
     unsafe {
-        // Create a mainloop API and connection to the default server
-        let pa_ml: *mut pa_mainloop = pa_mainloop_new();
-        let pa_mlapi: *mut pa_mainloop_api = pa_mainloop_get_api(pa_ml);
-        let pa_ctx: *mut pa_context = pa_context_new(pa_mlapi, client_name.as_ptr());
+        let pa_userdata_ptr = &mut pa_userdata as *mut _ as *mut c_void;
+        do_pa_operation(pa_ml, || {
+            pa_context_get_sink_input_info_list(
+                pa_ctx,
+                Some(pa_sink_input_info_cb),
+                pa_userdata_ptr,
+            )
+        });
+    }
+    pa_userdata.infos
+}
 
-        if connect_pa_context(pa_ml, pa_ctx) {
-            let pa_userdata_ptr = &mut pa_userdata as *mut _ as *mut c_void;
-            do_pa_operation(pa_ml, || {
-                pa_context_get_sink_input_info_list(
-                    pa_ctx,
-                    Some(pa_sink_input_info_cb),
-                    pa_userdata_ptr,
-                )
-            });
-            success = !pa_userdata.infos.is_empty();
-            if !success {
-                println!("PulseAudio sink not found for pid {}", pid);
-            }
-            for mut info in pa_userdata.infos {
-                do_pa_operation(pa_ml, || perform_volume_op(op, pa_ctx, &mut info, debug));
+pub struct PulseAudio {
+    pa_ml: *mut pa_mainloop,
+    pa_ctx: *mut pa_context,
+}
+
+impl Drop for PulseAudio {
+    fn drop(&mut self) {
+        if DEBUG_LOG {
+            println!("PulseAudio drop");
+        }
+        unsafe {
+            pa_context_unref(self.pa_ctx);
+            pa_mainloop_free(self.pa_ml);
+        }
+    }
+}
+
+impl PulseAudio {
+    pub fn create(client_name: &str) -> PulseAudio {
+        unsafe {
+            let client_name_c = CString::new(client_name).unwrap();
+            let pa_ml: *mut pa_mainloop = pa_mainloop_new();
+            let pa_mlapi: *mut pa_mainloop_api = pa_mainloop_get_api(pa_ml);
+            let pa_ctx: *mut pa_context = pa_context_new(pa_mlapi, client_name_c.as_ptr());
+            PulseAudio {
+                pa_ml,
+                pa_ctx,
             }
         }
-
-        // Cleanup
-        pa_context_disconnect(pa_ctx);
-        pa_context_unref(pa_ctx);
-        pa_mainloop_free(pa_ml);
     }
-    success
+
+    pub fn connect(self) -> Option<ConnectedPulseAudio> {
+        unsafe {
+            if connect_pa_context(self.pa_ml, self.pa_ctx) {
+                Some(ConnectedPulseAudio { data: self })
+            } else {
+                None
+            }
+        }
+    }
+}
+
+pub struct ConnectedPulseAudio {
+    data: PulseAudio,
+}
+
+impl Drop for ConnectedPulseAudio {
+    fn drop(&mut self) {
+        if DEBUG_LOG {
+            println!("ConnectedPulseAudio drop");
+        }
+        unsafe {
+            pa_context_disconnect(self.data.pa_ctx);
+        }
+    }
+}
+
+impl ConnectedPulseAudio {
+    pub fn perform_volume_op(&self, op: &VolumeOp, mut info: &mut pa_sink_input_info, debug: bool) {
+        unsafe {
+            do_pa_operation(self.data.pa_ml, || {
+                perform_volume_pa_op(op, self.data.pa_ctx, &mut info, debug)
+            });
+        }
+    }
+
+    pub fn get_sink_infos(&self, pid: u32, debug: bool) -> Vec<pa_sink_input_info> {
+        get_sink_infos(pid, debug, self.data.pa_ml, self.data.pa_ctx)
+    }
 }

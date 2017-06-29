@@ -51,9 +51,8 @@ pub fn flatten_tree_breadth_first<T>(root: Node<T>) -> Vec<T> {
 
 pub fn get_children_pids(parent_pid: PidT) -> Vec<PidT> {
     let children_tree = get_child_process_tree(parent_pid);
-    let children = flatten_tree_breadth_first(ProcessNode {
+    flatten_tree_breadth_first(ProcessNode {
         value: parent_pid,
         children: children_tree,
-    });
-    children
+    })
 }
