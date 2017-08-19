@@ -79,7 +79,7 @@ where
 unsafe fn connect_pa_context(pa_ml: *mut pa_mainloop, pa_ctx: *mut pa_context) -> bool {
     unsafe extern "C" fn pa_state_cb(pa_ctx: *mut pa_context, userdata: *mut c_void) -> () {
         let pa_state: pa_context_state_t = pa_context_get_state(pa_ctx);
-        let mut pa_ready = userdata as *mut pa_context_state_t;
+        let pa_ready = userdata as *mut pa_context_state_t;
         *pa_ready = pa_state;
         if DEBUG_LOG {
             println!("Pulse state: {}", pa_state);
@@ -190,7 +190,7 @@ fn get_sink_infos(
                 pid_s.parse::<u32>().unwrap()
             };
             let pa_userdata_ptr = userdata as *mut SinkInputInfo;
-            let mut pa_userdata: &mut SinkInputInfo = &mut *pa_userdata_ptr;
+            let pa_userdata: &mut SinkInputInfo = &mut *pa_userdata_ptr;
             if pa_userdata.pid == pid {
                 if pa_userdata.debug {
                     println!("Matched pid on sink {}", (*i).index);
